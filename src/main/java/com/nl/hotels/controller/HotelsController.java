@@ -35,8 +35,7 @@ public class HotelsController {
     @RequestMapping("/hotels")
     public HotelsDataResponse getHotels(
             @RequestParam(name = "airport", defaultValue = "YVR") String airport,
-            @RequestParam(name = "date", defaultValue = "06/02/2019") String date
-    ) {
+            @RequestParam(name = "date", defaultValue = "06/02/2019") String date) {
          try {
             // Get Amadeus api token using apikey and secret.
             String amadeusToken = getAmadeusToken();
@@ -102,7 +101,6 @@ public class HotelsController {
         }
 
         String hotelsJson = response.getBody();
-//        System.out.println(hotelsJson);
 
         ArrayList<HotelData> hotels = new ArrayList<HotelData>();
 
@@ -111,19 +109,21 @@ public class HotelsController {
         JsonNode dataNode = jsonNode.get("data");
         for (final JsonNode hotelOffersNode: dataNode) {
             JsonNode hotelNode = hotelOffersNode.get("hotel");
+
             String hotelName = hotelNode.get("name").asText();
+
             JsonNode addressNode = hotelNode.get("address");
             ArrayList<String> addressLines = new ArrayList<>();
             for (final JsonNode addressLineNode: addressNode.get("lines")) {
                 addressLines.add(addressLineNode.asText());
             }
+
             String postalCode = addressNode.get("postalCode").asText();
             String cityName = addressNode.get("cityName").asText();
             String countryCode = addressNode.get("countryCode").asText();
             String stateCode = addressNode.get("stateCode").asText();
 
-            JsonNode offersNode = hotelOffersNode.get("offers");
-            String rate = offersNode.get(0).get("price").get("total").asText();
+            String rate = hotelOffersNode.get("offers").get(0).get("price").get("total").asText();
 
             String phone = hotelNode.get("contact").get("phone").asText();
             HotelData hotelData = new HotelData(
@@ -149,13 +149,14 @@ public class HotelsController {
 
         ArrayList<String> addressLines1 = new ArrayList<String>();
         addressLines1.add("address1");
+        testData.add(new HotelData("name1", addressLines1, "V5J 1P1", "Vancouver", "CA", "BC", "1-604-555-5551", "55.00"));
+
         ArrayList<String> addressLines2 = new ArrayList<String>();
         addressLines2.add("address2");
+        testData.add(new HotelData("name2", addressLines2, "V5J 2P2", "Vancouver", "CA", "BC", "1-604-555-5552", "65.00"));
+
         ArrayList<String> addressLines3 = new ArrayList<String>();
         addressLines3.add("address3");
-
-        testData.add(new HotelData("name1", addressLines1, "V5J 1P1", "Vancouver", "CA", "BC", "1-604-555-5551", "55.00"));
-        testData.add(new HotelData("name2", addressLines2, "V5J 2P2", "Vancouver", "CA", "BC", "1-604-555-5552", "65.00"));
         testData.add(new HotelData("name3", addressLines3, "V5J 3P3", "Vancouver", "CA", "BC", "1-604-555-5553", "55.00"));
 
         HotelsDataResponse response = new HotelsDataResponse(testData);
