@@ -150,9 +150,9 @@ public class HotelsController {
         ArrayList<String> addressLines1 = new ArrayList<String>();
         addressLines1.add("address1");
         ArrayList<String> addressLines2 = new ArrayList<String>();
-        addressLines1.add("address2");
+        addressLines2.add("address2");
         ArrayList<String> addressLines3 = new ArrayList<String>();
-        addressLines1.add("address3");
+        addressLines3.add("address3");
 
         testData.add(new HotelData("name1", addressLines1, "V5J 1P1", "Vancouver", "CA", "BC", "1-604-555-5551", "55.00"));
         testData.add(new HotelData("name2", addressLines2, "V5J 2P2", "Vancouver", "CA", "BC", "1-604-555-5552", "65.00"));
