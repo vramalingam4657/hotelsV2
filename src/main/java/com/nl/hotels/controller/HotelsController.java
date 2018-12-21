@@ -1,26 +1,22 @@
 package com.nl.hotels.controller;
-import com.amadeus.Amadeus;
-import com.amadeus.Params;
-import com.amadeus.resources.HotelOffer;
-import com.amadeus.shopping.hotel.HotelOffers;
-import com.nl.hotels.dto.HotelsData;
+
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nl.hotels.dto.HotelData;
 import com.nl.hotels.dto.HotelsDataResponse;
-import org.apache.tomcat.util.codec.binary.Base64;
+
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.http.*;
-import org.springframework.util.Base64Utils;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
-import java.nio.charset.Charset;
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.Produces;
@@ -29,8 +25,10 @@ import javax.ws.rs.Produces;
 @ComponentScan
 public class HotelsController {
 
-    private static final String apiKey = "gWLmb3p7fV7sns353qhNM0exRHp1gtWq";
-    private static final String apiSecret = "gbeKXu11DdU85GDC";
+    private static final String API_KEY = "gWLmb3p7fV7sns353qhNM0exRHp1gtWq";
+    private static final String API_SECRET = "gbeKXu11DdU85GDC";
+    private static final String TOKEN_URL = "https://test.api.amadeus.com/v1/security/oauth2/token";
+    private static final String HOTELS_URL = "https://test.api.amadeus.com/v1/shopping/hotel-offers";
 
     @GET
     @Produces("text/json")
@@ -38,60 +36,127 @@ public class HotelsController {
     public HotelsDataResponse getHotels(
             @RequestParam(name = "airport", defaultValue = "YVR") String airport,
             @RequestParam(name = "date", defaultValue = "06/02/2019") String date
-            ) {
-        HotelOffer[] offers;
-        try {
-            Amadeus amadeus = Amadeus
-                    .builder(apiKey, apiSecret)
-                    .build();
+    ) {
+         try {
+            // Get Amadeus api token using apikey and secret.
+            String amadeusToken = getAmadeusToken();
+            if (amadeusToken == null) {
+                return null;
+            }
 
-            offers = amadeus.shopping.hotelOffers.get(
-                    Params.with("cityCode", airport)
-                            .and("checkInDate", date)
-                            .and("checkOutDate", date)
-            );
+            // Using the token and the request params, get hotels from Amadeus
+            List<HotelData> hotelData = getHotels(amadeusToken, airport, date);
+
+            // Sort the returned hotel list using the rate
+            HotelData[] hotelsForSort = hotelData.toArray(new HotelData[0]);
+            Arrays.sort(hotelsForSort);
+
+            // Get the first 3 cheapest hotels
+            List<HotelData> cheapestHotels = new ArrayList<>();
+            for (int i = 0; i < 3 && i < hotelsForSort.length; i++) {
+                cheapestHotels.add(hotelsForSort[i]);
+            }
+
+            HotelsDataResponse response = new HotelsDataResponse(cheapestHotels);
+            return response;
+
         } catch (Exception e) {
-            System.out.println("Exception in amadeus call " + e.getMessage());
+            System.out.println("Exception " + e.getMessage());
             e.printStackTrace();
             return null;
         }
+    }
 
-        ArrayList<HotelsData> hotels = new ArrayList<HotelsData>();
-        for (HotelOffer ho: offers) {
-            hotels.add(new HotelsData(
-                    ho.getHotel().getName(),
-                    ho.getHotel().getAddress(),
-                    ho.getHotel().getContact().getPhone(),
-                    Double.valueOf(ho.getOffers()[0].getPrice().getTotal())
-                    ));
+    String getAmadeusToken() throws IOException {
+        String tokenRequestBody = "grant_type=client_credentials&client_id=" + API_KEY
+                + "&client_secret=" + API_SECRET;
+
+        HttpHeaders tokenRequestHeaders = new HttpHeaders();
+                tokenRequestHeaders.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+        HttpEntity<String> request = new HttpEntity<>(tokenRequestBody, tokenRequestHeaders);
+
+        ResponseEntity<String> response = new RestTemplate().postForEntity(
+                TOKEN_URL, request, String.class);
+        if (response.getStatusCode() != HttpStatus.OK) {
+            return null;
         }
 
-        List<HotelsData> sortedHotels = (List<HotelsData>)
-                (hotels.stream()
-                .sorted(Comparator.comparingDouble(HotelsData::getRate))
-                .collect(Collectors.toList()));
-        int numHotels = sortedHotels.size();
-        if (numHotels > 3) {
-            // truncate to max 3 elements, removing elements from the end
-            for (int i=numHotels-1; i>2; i--) {
-                sortedHotels.remove(i);
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode jsonNode = objectMapper.readTree(response.getBody());
+        return jsonNode.get("access_token").asText();
+    }
+
+    List<HotelData> getHotels(String amadeusToken, String airport, String date) throws IOException {
+        String amadeusHotelSearchUrl = HOTELS_URL + "?cityCode=" + airport
+                + "&checkInDate=" + date + "&checkOutDate=" + date;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Authorization", "Bearer " + amadeusToken);
+        HttpEntity<String> requestEntity = new HttpEntity<>(null, headers);
+
+        ResponseEntity<String> response = new RestTemplate().
+                exchange(amadeusHotelSearchUrl, HttpMethod.GET, requestEntity, String.class );
+        if (response.getStatusCode() != HttpStatus.OK) {
+            return null;
+        }
+
+        String hotelsJson = response.getBody();
+//        System.out.println(hotelsJson);
+
+        ArrayList<HotelData> hotels = new ArrayList<HotelData>();
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode jsonNode = objectMapper.readTree(hotelsJson);
+        JsonNode dataNode = jsonNode.get("data");
+        for (final JsonNode hotelOffersNode: dataNode) {
+            JsonNode hotelNode = hotelOffersNode.get("hotel");
+            String hotelName = hotelNode.get("name").asText();
+            JsonNode addressNode = hotelNode.get("address");
+            ArrayList<String> addressLines = new ArrayList<>();
+            for (final JsonNode addressLineNode: addressNode.get("lines")) {
+                addressLines.add(addressLineNode.asText());
             }
+            String postalCode = addressNode.get("postalCode").asText();
+            String cityName = addressNode.get("cityName").asText();
+            String countryCode = addressNode.get("countryCode").asText();
+            String stateCode = addressNode.get("stateCode").asText();
+
+            JsonNode offersNode = hotelOffersNode.get("offers");
+            String rate = offersNode.get(0).get("price").get("total").asText();
+
+            String phone = hotelNode.get("contact").get("phone").asText();
+            HotelData hotelData = new HotelData(
+                    hotelName,
+                    addressLines,
+                    postalCode,
+                    cityName,
+                    countryCode,
+                    stateCode,
+                    phone,
+                    rate);
+            hotels.add(hotelData);
         }
 
-        HotelsDataResponse response = new HotelsDataResponse(sortedHotels);
-        return response;
+        return hotels;
     }
 
     @GET
     @Produces("text/json")
     @RequestMapping("/hotelsTest")
     public HotelsDataResponse getFlightsTestData() {
-        ArrayList<HotelsData> testData = new ArrayList<HotelsData>();
-        HotelOffer.AddressType addressType = null;
+        ArrayList<HotelData> testData = new ArrayList<HotelData>();
 
-        testData.add(new HotelsData("name1", addressType, "phone1", 50.00));
-        testData.add(new HotelsData("name2", addressType, "phone2", 70.99));
-        testData.add(new HotelsData("name3", addressType, "phone3", 250.01));
+        ArrayList<String> addressLines1 = new ArrayList<String>();
+        addressLines1.add("address1");
+        ArrayList<String> addressLines2 = new ArrayList<String>();
+        addressLines1.add("address2");
+        ArrayList<String> addressLines3 = new ArrayList<String>();
+        addressLines1.add("address3");
+
+        testData.add(new HotelData("name1", addressLines1, "V5J 1P1", "Vancouver", "CA", "BC", "1-604-555-5551", "55.00"));
+        testData.add(new HotelData("name2", addressLines2, "V5J 2P2", "Vancouver", "CA", "BC", "1-604-555-5552", "65.00"));
+        testData.add(new HotelData("name3", addressLines3, "V5J 3P3", "Vancouver", "CA", "BC", "1-604-555-5553", "55.00"));
 
         HotelsDataResponse response = new HotelsDataResponse(testData);
         return response;

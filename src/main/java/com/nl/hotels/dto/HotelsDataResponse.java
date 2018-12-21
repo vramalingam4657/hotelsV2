@@ -10,5 +10,5 @@ import java.util.List;
 @Data
 @AllArgsConstructor
 public class HotelsDataResponse implements Serializable {
-    List<HotelsData> hotels;
+    List<HotelData> hotels;
 }
